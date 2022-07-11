@@ -1,0 +1,224 @@
+---
+title: "SUMHAL Sierra Nevada "
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme: yeti
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+library('flexdashboard')
+library('rgdal')
+library("leaflet") 
+library("leaflet.extras2")
+library("sf")
+library("tidyverse")
+library("raster")
+library("sp")
+library("lubridate")
+library("leafgl") # add large files points
+```
+
+
+```{r}
+map_base <- leaflet() %>%
+  addWMSTiles(
+    baseUrl = "http://www.ideandalucia.es/wms/mdt_2005?",
+    layers = "Sombreado_10",
+    group = "Hillshade",
+    options = WMSTileOptions(
+      format = "image/png", 
+      transparent = TRUE),
+    attribution = '<a href="http://www.juntadeandalucia.es/institutodeestadisticaycartografia" target="_blank">Instituto de Estadística y Cartografía de Andalucía</a>'
+  ) %>%
+  addWMSTiles(
+    baseUrl = "http://www.ign.es/wms-inspire/ign-base?",
+    layers = "IGNBaseTodo",
+    group = "Basemap",
+    attribution = '© <a href="http://www.ign.es/ign/main/index.do" target="_blank">Instituto Geográfico Nacional de España</a>'
+  ) %>%  
+  addWMSTiles("http://www.ideandalucia.es/services/toporaster10/wms?",
+    layers = "toporaster10",
+    group = "Topographical",
+    options = WMSTileOptions(
+      format = "image/png", 
+      transparent = FALSE),
+    attribution = '<a href="http://www.juntadeandalucia.es/institutodeestadisticaycartografia" target="_blank">Instituto de Estadística y Cartografía de Andalucía</a>'
+  ) %>%
+  addWMSTiles("http://www.ideandalucia.es/wms/mta10r_2001-2013?",
+    layers = "mta10r_2001-2013",
+    group = "topo2013",
+    options = WMSTileOptions(
+      format = "image/png", 
+      transparent = FALSE),
+    attribution = '<a href="http://www.juntadeandalucia.es/institutodeestadisticaycartografia" target="_blank">Instituto de Estadística y Cartografía de Andalucía</a>'
+  ) %>% 
+  addProviderTiles("Esri.WorldImagery", group = "Satellite") %>% 
+  addWMSTiles("http://www.ign.es/wms-inspire/pnoa-ma",
+    layers = "OI.OrthoimageCoverage",
+    group = "PNOA Máxima Actualidad",
+    options = WMSTileOptions(
+      format = "image/png", 
+      transparent = FALSE),
+    attribution = 'PNOA cedido por © <a href="http://www.ign.es/ign/main/index.do" target="_blank">Instituto Geográfico Nacional de España</a>'
+  ) 
+  
+```
+
+
+```{r}
+# RAPCA 
+## Here we need to join two shapefiles, be carefull with the names of the fields
+# OJO CON ZONA. En Rapca malaga está pero en el resto no 
+rapca_gr <- st_read("data/rapca/Rapca_GRANADA 2020.shp", 
+                    quiet = TRUE) 
+rapca_gr <- st_transform(rapca_gr, crs = 4326) %>% 
+  dplyr::select(UNIDAD, ID_UNIDAD, 
+                LONGITUD = LONG_UNID,
+                ANCHO = ANCHO_UNID, 
+                SUPERFICIE = SUPERFIC_1, ID_ZONA)
+rapca_al <- st_read("data/rapca/Rapca_ALMERIA 2020.shp", 
+                    quiet = TRUE) 
+rapca_al <- st_transform(rapca_al, crs = 4326) %>%
+  mutate(LONGITUD = LONGITUD_K * 1000) %>% 
+   dplyr::select(UNIDAD = NOMBRE_UNI, ID_UNIDAD, 
+                LONGITUD, ANCHO,  
+                SUPERFICIE, ID_ZONA)
+rapca_gral <- rbind(rapca_gr, rapca_al)
+popup_rapca_gral <- paste0(
+  "<strong>Unidad:</strong> ", rapca_gral$UNIDAD,
+  "<br><strong>Código Unidad:</strong> ", rapca_gral$ID_UNIDAD,
+  "<br><strong>Longitud:</strong> ", paste0(round(rapca_gral$LONGITUD,0), " m"),
+  "<br><strong>Anchura:</strong> ", paste0(round(rapca_gral$ANCHO,0), " m"),
+  "<br><strong>Superficie</strong> ", paste0(round(rapca_gral$SUPERFICIE,2), " ha"),
+  "<br><strong>Zona:</strong> ", paste0(rapca_gral$ZONA, " (", rapca_gral$ID_ZONA, ")")
+)
+```
+
+
+```{r}
+# Prepara datos de pastos 
+pastos <- st_read("data/pastos/pastos.shp", quiet = TRUE)
+pastos <- st_transform(pastos, crs = 4326)
+
+
+popup_pastos <- paste0(
+  "<strong>Pasto:</strong> ", pastos$PASTO,
+  "<br><strong>Superficie:</strong> ", pastos$HECTARES,
+  "<br><strong>Energía metabolizable (MJ ha<sup>-1</sup> año<sup>-1</sup>):</strong> ",pastos$E_METAB,
+  "<br><strong>Cap. Sustentadora Mantenimiento (UO/C ha<sup>-1</sup> año<sup>-1</sup>:</strong> ", pastos$CSM,
+    "<br><strong>Cap. Sustentadora Producción (UO/C ha<sup>-1</sup> año<sup>-1</sup>:</strong> ", pastos$CSP)
+
+paleta_custom <- c("#0181af","#ecc20e","#2366ee","#c6ce31","#ae5ce4","#008b09","#ff59ca","#00b047","#f48bff","#7e9400","#57439e","#f5a201","#649dff","#c20b14","#02d7f3","#a60d27","#01c88c","#ff4185","#00b09b","#ff7590","#3c6900","#3ac2ff","#9d6c00","#50d8e3","#ff8564","#01a3b2","#784625","#95d593","#555617","#dbc577")
+
+pal <- colorFactor(palette = paleta_custom, pastos$PASTO)
+```
+
+```{r}
+# Datos from GPS ganado 
+# Los datos se han exportado de los datos que tenemos en GPS
+
+sne1 <- st_read("data/gps/site_SNE1.shp", quiet = TRUE)
+sne2 <- st_read("data/gps/site_SNE2.shp", quiet = TRUE)
+sne3 <- st_read("data/gps/site_SNE3.shp", quiet = TRUE)
+sne4 <- st_read("data/gps/site_SNE4.shp", quiet = TRUE)
+sne5 <- st_read("data/gps/site_SNE5.shp", quiet = TRUE)
+
+
+  # for (i in 1:5){ 
+  #   popup <- paste0(
+  # "<strong>GPS:</strong> ", ",",  paste0('sne',i,'$cod_gps,'),
+  # "<br><strong>Usuario:</strong> ", ",",  paste0('sne',i,'$user_nm,'),
+  # "<br><strong>type:</strong> ", ",",  paste0('sne',i,'$type,'),
+  # "<br><strong>date:</strong> ", ",",  paste0('sne',i,'$date'))
+  #   
+  #   assign(paste0('popup_sne',i), popup)
+  # }
+
+popup_sne1 <- paste0(
+  "<strong>GPS:</strong> ", sne1$cdg_gps,
+  "<br><strong>Usuario:</strong> ", sne1$user_nm,
+  "<br><strong>type:</strong> ", sne1$type,
+  "<br><strong>date:</strong> ", sne1$date)
+    
+popup_sne2 <- paste0(
+  "<strong>GPS:</strong> ", sne2$cdg_gps,
+  "<br><strong>Usuario:</strong> ", sne2$user_nm,
+  "<br><strong>type:</strong> ", sne2$type,
+  "<br><strong>date:</strong> ", sne2$date)
+    
+popup_sne3 <- paste0(
+  "<strong>GPS:</strong> ", sne3$cdg_gps,
+  "<br><strong>Usuario:</strong> ", sne3$user_nm,
+  "<br><strong>type:</strong> ", sne3$type,
+  "<br><strong>date:</strong> ", sne3$date)
+
+popup_sne4 <- paste0(
+  "<strong>GPS:</strong> ", sne4$cdg_gps,
+  "<br><strong>Usuario:</strong> ", sne4$user_nm,
+  "<br><strong>type:</strong> ", sne4$type,
+  "<br><strong>date:</strong> ", sne4$date)
+
+popup_sne5 <- paste0(
+  "<strong>GPS:</strong> ", sne5$cdg_gps,
+  "<br><strong>Usuario:</strong> ", sne5$user_nm,
+  "<br><strong>type:</strong> ", sne5$type,
+  "<br><strong>date:</strong> ", sne5$date)
+
+
+
+```
+
+
+```{r}
+myext <- st_bbox(pastos) %>% as.vector()
+
+map_base %>% 
+  fitBounds(myext[1], myext[2], myext[3], myext[4]) %>% 
+  addPolygons(
+    data = pastos,
+    group = "Pastos",
+    fillColor = pal(pastos$PASTO), fillOpacity = 0.4,
+    stroke = FALSE,
+    # color= "#1c9099", weight = 1,
+    popup = popup_pastos,
+    label = ~PASTO,
+    labelOptions = labelOptions(
+      noHide = FALSE,
+      offset = c(0, 0),
+      textOnly = F,
+      style = list("color" = "black")
+    )
+  )  %>% 
+  addPolygons(
+    data = rapca_gral,
+    group = "RAPCA",
+    fillColor = "blue", fillOpacity = 0.2,
+    stroke = TRUE, color= "black", weight = 1,
+    popup = popup_rapca_gral,
+    label = ~ID_UNIDAD,
+    labelOptions = labelOptions(
+      noHide = FALSE,
+      offset = c(0, 0),
+      textOnly = F,
+      style = list("color" = "black")
+    )
+  ) %>% 
+  addGlPoints(data = sne1, group = "SNE1", popup = popup_sne1, fillColor = "blue", radius = 6) %>% 
+  addGlPoints(data = sne2, group = "SNE2", popup = popup_sne2, fillColor = "red",radius = 6) %>% 
+  addGlPoints(data = sne3, group = "SNE3", popup = popup_sne3, fillColor = "white", radius = 6) %>% 
+  addGlPoints(data = sne4, group = "SNE4", popup = popup_sne4, fillColor = "orange", radius = 6) %>% 
+  addGlPoints(data = sne5, group = "SNE5", popup = popup_sne5, fillColor = "pink", radius = 6) %>% 
+  addLayersControl(
+    position = "bottomright",
+    baseGroups = c("Satellite", "Basemap", "PNOA Máxima Actualidad", "Hillshade", "Topographical", "topo2013"),
+    overlayGroups = c("RAPCA", 
+                      "SNE1", "SNE2", "SNE3", "SNE4", "SNE5","Pastos"), 
+    options = layersControlOptions(collapsed = TRUE)
+  ) 
+```
+
+
