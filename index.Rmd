@@ -68,6 +68,16 @@ map_base <- leaflet() %>%
   
 ```
 
+```{r}
+ptos_sn <- st_read("data/puntos_sn/puntos_sn.shp", quiet=TRUE) 
+ptos_sn <- st_transform(ptos_sn, 4326)
+
+popup_puntos <- paste0(
+  "<strong>ID</strong> ", ptos_sn$id_punt,
+  "<br><strong>Fecha:</strong> ", ptos_sn$date,
+  "<br><strong>Nombre Comunidad:</strong> ", ptos_sn$nm_cmnd)
+```
+
 
 ```{r}
 # RAPCA 
@@ -173,11 +183,31 @@ popup_sne5 <- paste0(
 ```
 
 
+
+
+
+```{r}
+# Limites ENSN 
+enp <- st_read("data/aux/limites_sn.shp", quiet=TRUE) 
+enp <- st_transform(enp, 4326)
+
+pnat <- enp |> filter(figura == "Parque Natural")
+pnac <- enp |> filter(figura == "Parque Nacional")
+```
+
+
 ```{r}
 myext <- st_bbox(pastos) %>% as.vector()
 
 map_base %>% 
   fitBounds(myext[1], myext[2], myext[3], myext[4]) %>% 
+  addPolygons(data = pnac, 
+              group = "P. Nacional", 
+              stroke = TRUE, fillOpacity = 0, color= "white", weight = 2) |> 
+  addPolygons(data = pnat, 
+              group = "P. Natural", 
+              fill = FALSE,
+              stroke = TRUE, color= "yellow", weight = 1) |>
   addPolygons(
     data = pastos,
     group = "Pastos",
@@ -193,30 +223,40 @@ map_base %>%
       style = list("color" = "black")
     )
   )  %>% 
-  addPolygons(
-    data = rapca_gral,
-    group = "RAPCA",
-    fillColor = "blue", fillOpacity = 0.2,
-    stroke = TRUE, color= "black", weight = 1,
-    popup = popup_rapca_gral,
-    label = ~ID_UNIDAD,
-    labelOptions = labelOptions(
-      noHide = FALSE,
-      offset = c(0, 0),
-      textOnly = F,
-      style = list("color" = "black")
-    )
-  ) %>% 
-  addGlPoints(data = sne1, group = "SNE1", popup = popup_sne1, fillColor = "blue", radius = 6) %>% 
-  addGlPoints(data = sne2, group = "SNE2", popup = popup_sne2, fillColor = "red",radius = 6) %>% 
+  addCircleMarkers(radius = 5,
+                   label = ptos_sn$id_punt,
+                   stroke = FALSE,
+                   fillColor = "blue",
+                   fillOpacity = 0.8,
+                   lat = st_coordinates(ptos_sn)[,2], 
+                   lng = st_coordinates(ptos_sn)[,1], 
+                   labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE,
+                                               style = list("color" = "white")),
+                   popup = popup_puntos) |> 
+  # addPolygons(
+  #   data = rapca_gral,
+  #   group = "RAPCA",
+  #   fillColor = "blue", fillOpacity = 0.2,
+  #   stroke = TRUE, color= "black", weight = 1,
+  #   popup = popup_rapca_gral,
+  #   label = ~ID_UNIDAD,
+  #   labelOptions = labelOptions(
+  #     noHide = FALSE,
+  #     offset = c(0, 0),
+  #     textOnly = F,
+  #     style = list("color" = "black")
+  #   )
+  # ) %>% 
+ # addGlPoints(data = sne1, group = "SNE1", popup = popup_sne1, fillColor = "blue", radius = 6) %>% 
+ # addGlPoints(data = sne2, group = "SNE2", popup = popup_sne2, fillColor = "red",radius = 6) %>% 
   addGlPoints(data = sne3, group = "SNE3", popup = popup_sne3, fillColor = "white", radius = 6) %>% 
-  addGlPoints(data = sne4, group = "SNE4", popup = popup_sne4, fillColor = "orange", radius = 6) %>% 
-  addGlPoints(data = sne5, group = "SNE5", popup = popup_sne5, fillColor = "pink", radius = 6) %>% 
+ #  addGlPoints(data = sne4, group = "SNE4", popup = popup_sne4, fillColor = "orange", radius = 6) %>% 
+  # addGlPoints(data = sne5, group = "SNE5", popup = popup_sne5, fillColor = "pink", radius = 6) %>% 
   addLayersControl(
     position = "bottomright",
     baseGroups = c("Satellite", "Basemap", "PNOA Máxima Actualidad", "Hillshade", "Topographical", "topo2013"),
-    overlayGroups = c("RAPCA", 
-                      "SNE1", "SNE2", "SNE3", "SNE4", "SNE5","Pastos"), 
+    overlayGroups = c("Pastos", "P. Nacional", "P. Natural",
+                      "SNE3"), 
     options = layersControlOptions(collapsed = TRUE)
   ) 
 ```
